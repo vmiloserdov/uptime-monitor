@@ -12,12 +12,14 @@ const long timeout = 10L;
 const long follow_location = 1L;
 const long download_body = 1L;
 const char* conn_string ="host=localhost user=monitor_user password=monitor_user dbname=uptime_monitor";
-
+int active_monitor_ids[256];
+int active_monitor_count = 0;
 
 
 typedef struct {
     int monitor_id;
     char url[512];
+    int check_interval_seconds;
 } MonitorTask;
 
 
@@ -122,40 +124,120 @@ void* thread_check(void* arg) {
     return NULL;
 }
 
-int main() {
-    PGconn* conn = connect_db();
-    if (!conn) return 1;
+void* monitor_thread(void* arg) {
+    MonitorTask* task = (MonitorTask*)arg;
+
+    printf("Starting monitor thread for %s (every %ds)\n", task->url, task->check_interval_seconds);
 
     while (1) {
-        PGresult* res = PQexec(conn, "SELECT id, url FROM monitors WHERE is_active = true");
+        PGconn* conn = connect_db();
+        if (!conn) {
+            sleep(10);
+            continue;
+        }
+
+        // Check if monitor is still active
+        char monitor_id_str[16];
+        snprintf(monitor_id_str, sizeof(monitor_id_str), "%d", task->monitor_id);
+        const char* params[1] = { monitor_id_str };
+
+        PGresult* res = PQexecParams(
+            conn,
+            "SELECT is_active::text FROM monitors WHERE id = $1",
+            1, NULL, params, NULL, NULL, 0
+        );
+
+        if (PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0) {
+            printf("Monitor %d no longer exists, stopping thread\n", task->monitor_id);
+            PQclear(res);
+            PQfinish(conn);
+            break;
+        }
+
+        char* is_active = PQgetvalue(res, 0, 0);
+        PQclear(res);
+
+        if (strcmp(is_active, "true") != 0) {
+            printf("Monitor %d deactivated, stopping thread\n", task->monitor_id);
+            PQfinish(conn);
+            break;
+        }
+
+        check_url(conn, task->monitor_id, task->url);
+        PQfinish(conn);
+
+        sleep(task->check_interval_seconds);
+    }
+
+    free(task);
+    return NULL;
+}
+
+
+
+
+int main() {
+    int active_ids[256];
+    int active_count = 0;
+
+    printf("Prober started. Checking for monitors every 60 seconds.\n");
+
+    while (1) {
+        PGconn* conn = connect_db();
+        if (!conn) {
+            sleep(10);
+            continue;
+        }
+
+        PGresult* res = PQexec(conn, "SELECT id, url, check_interval_seconds FROM monitors WHERE is_active = true");
 
         if (PQresultStatus(res) != PGRES_TUPLES_OK) {
             printf("Query failed: %s\n", PQerrorMessage(conn));
             PQclear(res);
-            break;
+            PQfinish(conn);
+            sleep(10);
+            continue;
         }
 
         int rows = PQntuples(res);
-        printf("Checking %d monitors...\n", rows);
-
-        pthread_t threads[rows];
 
         for (int i = 0; i < rows; i++) {
+            int monitor_id = atoi(PQgetvalue(res, i, 0));
+
+            // Check if this monitor already has a thread
+            int already_running = 0;
+            for (int j = 0; j < active_count; j++) {
+                if (active_ids[j] == monitor_id) {
+                    already_running = 1;
+                    break;
+                }
+            }
+
+            if (already_running) continue;
+
+            // Spawn a new thread for this monitor
             MonitorTask* task = malloc(sizeof(MonitorTask));
-            task->monitor_id = atoi(PQgetvalue(res, i, 0));
+            task->monitor_id = monitor_id;
             strncpy(task->url, PQgetvalue(res, i, 1), sizeof(task->url) - 1);
-            pthread_create(&threads[i], NULL, thread_check, task);
-        }
+            task->check_interval_seconds = atoi(PQgetvalue(res, i, 2));
 
-        for (int i = 0; i < rows; i++) {
-            pthread_join(threads[i], NULL);
+            pthread_t thread;
+            pthread_create(&thread, NULL, monitor_thread, task);
+            pthread_detach(thread);
+
+            if (active_count < 256) {
+                active_ids[active_count++] = monitor_id;
+            }
+
+            printf("Spawned thread for monitor %d: %s\n", monitor_id, task->url);
         }
 
         PQclear(res);
-        printf("Done. Sleeping 30 seconds...\n\n");
-        sleep(30);
+        PQfinish(conn);
+
+        printf("Watching %d monitors. Checking for new ones in 60 seconds.\n", active_count);
+        sleep(60);
     }
 
-    PQfinish(conn);
     return 0;
 }
