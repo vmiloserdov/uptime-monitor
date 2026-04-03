@@ -154,9 +154,12 @@ void* monitor_thread(void* arg) {
             break;
         }
 
-        char* is_active = PQgetvalue(res, 0, 0);
+        char* raw = PQgetvalue(res, 0, 0);
+        char is_active[8];
+        strncpy(is_active, raw, sizeof(is_active) - 1);
+        is_active[sizeof(is_active) - 1] = '\0';
         PQclear(res);
-
+        
         if (strcmp(is_active, "true") != 0) {
             printf("Monitor %d deactivated, stopping thread\n", task->monitor_id);
             PQfinish(conn);

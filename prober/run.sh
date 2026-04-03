@@ -1,4 +1,4 @@
 #!/bin/bash
+export $(cat ../.env | xargs)
 make
-export $(cat .env | xargs)
 ./probe

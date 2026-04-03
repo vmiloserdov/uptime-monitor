@@ -1,0 +1,15 @@
+{% extends 'monitors/base.html' %}
+{% block content %}
+<div class="card" style="max-width: 400px; margin: 0 auto;">
+    <h1>Login</h1>
+    <form method="post">
+        {% csrf_token %}
+        {% for field in form %}
+            <label>{{ field.label }}</label>
+            {{ field }}
+        {% endfor %}
+        <button type="submit" class="btn btn-primary" style="width:100%">Login</button>
+    </form>
+    <p style="margin-top:1rem">Don't have an account? <a href="{% url 'signup' %}">Sign up</a></p>
+</div>
+{% endblock %}

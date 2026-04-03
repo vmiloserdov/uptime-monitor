@@ -1,0 +1,66 @@
+{% extends 'monitors/base.html' %}
+{% block content %}
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem">
+    <h1>Dashboard</h1>
+    <a href="{% url 'add_monitor' %}" class="btn btn-primary">+ Add Monitor</a>
+</div>
+
+{% if monitor_data %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>URL</th>
+                <th>Status</th>
+                <th>Response Time</th>
+                <th>Uptime (30d)</th>
+                <th>Last Checked</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in monitor_data %}
+            <tr>
+                <td><a href="{% url 'monitor_detail' item.monitor.id %}">{{ item.monitor.name }}</a></td>
+                <td>{{ item.monitor.url }}</td>
+                <td>
+                    {% if item.latest_check %}
+                        {% if item.latest_check.is_up %}
+                            <span class="status-up">● UP</span>
+                        {% else %}
+                            <span class="status-down">● DOWN</span>
+                        {% endif %}
+                    {% else %}
+                        <span style="color:#999">Pending</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if item.latest_check %}
+                        {{ item.latest_check.response_time_ms }}ms
+                    {% else %}—{% endif %}
+                </td>
+                <td>{{ item.uptime }}%</td>
+                <td>
+                    {% if item.latest_check %}
+                        {{ item.latest_check.checked_at|timesince }} ago
+                    {% else %}—{% endif %}
+                </td>
+                <td>
+                    <form method="post" action="{% url 'delete_monitor' item.monitor.id %}" style="display:inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-danger" onclick="return confirm('Delete this monitor?')">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card" style="text-align:center; padding:3rem">
+    <p style="color:#999; margin-bottom:1rem">No monitors yet.</p>
+    <a href="{% url 'add_monitor' %}" class="btn btn-primary">Add your first monitor</a>
+</div>
+{% endif %}
+{% endblock %}

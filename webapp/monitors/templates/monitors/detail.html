@@ -1,0 +1,70 @@
+{% extends 'monitors/base.html' %}
+{% block content %}
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem">
+    <h1>{{ monitor.name }}</h1>
+    <a href="{% url 'dashboard' %}" class="btn" style="background:#eee">← Back</a>
+</div>
+
+<div class="card">
+    <p><strong>URL:</strong> {{ monitor.url }}</p>
+    <p><strong>Check Interval:</strong> {{ monitor.check_interval_seconds }}s</p>
+    <p><strong>Uptime (30 days):</strong> {{ uptime }}%</p>
+</div>
+
+<div class="card">
+    <h2>Recent Checks</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Status</th>
+                <th>Status Code</th>
+                <th>Response Time</th>
+                <th>Error</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for check in checks %}
+            <tr>
+                <td>{{ check.checked_at|timesince }} ago</td>
+                <td>
+                    {% if check.is_up %}
+                        <span class="status-up">UP</span>
+                    {% else %}
+                        <span class="status-down">DOWN</span>
+                    {% endif %}
+                </td>
+                <td>{{ check.status_code|default:"—" }}</td>
+                <td>{{ check.response_time_ms|default:"—" }}ms</td>
+                <td>{{ check.error_message|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h2>Alerts</h2>
+    {% for alert in alerts %}
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0; border-bottom:1px solid #eee">
+        <span>{{ alert.alert_type }} → {{ alert.destination }}</span>
+        <form method="post" action="{% url 'delete_alert' alert.id %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger">Delete</button>
+        </form>
+    </div>
+    {% empty %}
+        <p style="color:#999">No alerts configured.</p>
+    {% endfor %}
+
+    <h2 style="margin-top:1.5rem">Add Alert</h2>
+    <form method="post">
+        {% csrf_token %}
+        {% for field in alert_form %}
+            <label>{{ field.label }}</label>
+            {{ field }}
+        {% endfor %}
+        <button type="submit" class="btn btn-success">Add Alert</button>
+    </form>
+</div>
+{% endblock %}
