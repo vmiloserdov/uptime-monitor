@@ -18,7 +18,7 @@ A C daemon runs in the background, probing URLs at configurable intervals using 
 
 ## Note on AI Assistance
 
-The idea and architecture for this project are mine. I used Claude as a coding assistant to help implement and debug the code while learning how to use C and Django together.
+I wanted to see how C can interact with python through the database, learning was not the goal of the project. I have used Claude Code, so please be mindful of that if using the code in the wild. 
 
 ## Self-Hosting
 ```bash
