@@ -7,3 +7,4 @@ __pychache__/
 DB_creds.txt
 *.dSYM
 probe
+db_test

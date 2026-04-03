@@ -1,5 +1,3 @@
-all: probe db_test
-
 CC = gcc
 CFLAGS = -Wall -g -I/opt/homebrew/opt/libpq/include
 LIBS = -lcurl -L/opt/homebrew/opt/libpq/lib -lpq

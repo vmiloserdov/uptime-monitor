@@ -1,5 +1,10 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
 #include <curl/curl.h>
+#include <libpq-fe.h>
+
 
 /* Global Variables */
 const long timeout = 10L;
@@ -7,23 +12,33 @@ const long follow_location = 1L;
 const long download_body = 1L;
 
 
-int main(int argc, char **argv){
-    if (argc < 2){
-        printf("Wrong usage!\n");
-        return 1;
-    }
+const char* conn_string ="host=localhost user=monitor_user password=monitor_user dbname=uptime_monitor";
 
-    char *url = argv[1];
+
+/**
+ * @brief Function establishes a connection with the local database
+ * @return PGconn object if successfully connected, NULL o/w
+*/
+PGconn *connect_db(){
+    PGconn *conn = PQconnectdb(conn_string);
+    if (PQstatus(conn) != CONNECTION_OK){
+        printf("connection failed: %s\n", PQerrorMessage(conn));
+        return NULL;
+    }
+    return conn;
+}
+
+
+void check_url(PGconn *conn, int monitor_id, char *url){
     CURL *curl;
     CURLcode result;
-    long status_code;
-    double response_time;
+    long status_code = 0;
+    double response_time = 0;
 
-    // Allocate and return an easy handle
     curl = curl_easy_init();
     if (!curl){
-        printf("curl_easy_init() error!\n");
-        return 1;
+        printf("Failed to initiate curl\n");
+        return;
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
@@ -32,21 +47,87 @@ int main(int argc, char **argv){
     curl_easy_setopt(curl, CURLOPT_NOBODY, download_body);
 
     result = curl_easy_perform(curl);
+
+    int is_up = 0;
+    char error_msg[256] = "";
+
     if (result != CURLE_OK){
-        printf("DOWN | Error : %s\n", curl_easy_strerror(result));
-        curl_easy_cleanup(curl);
-        return 0;
+        // -1 in the end allows the null terminator to be added, for safe behaviour
+        strncpy(error_msg, curl_easy_strerror(result), sizeof(error_msg) - 1);
+    }
+    else{
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
+        curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &response_time);
+        is_up = status_code >= 200 && status_code < 400;
     }
 
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
-    curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &response_time);
-
-    int is_up = status_code >= 200 && status_code < 400;
-    printf("%s | %ld |  %.0fms\n", is_up ? "UP" : "DOWN", status_code, response_time * 1000);
-
     curl_easy_cleanup(curl);
+
+    int response_time_ms = (int)(response_time * 1000);
+    char monitor_id_str[16];
+    char status_code_str[16];
+    char response_time_str[16];
+    char is_up_str[8];
+
+    // Safely print the result
+    snprintf(monitor_id_str, sizeof(monitor_id_str), "%d", monitor_id);
+    snprintf(status_code_str, sizeof(status_code_str), "%ld", status_code);
+    snprintf(response_time_str, sizeof(response_time_str), "%d", response_time_ms);
+    strncpy(is_up_str, is_up ? "true" : "false", sizeof(is_up_str));
+
+
+    const char* params[5];
+    params[0] = monitor_id_str;
+    params[1] = status_code_str;
+    params[2] = response_time_str;
+    params[3] = is_up_str;
+    params[4] = strlen(error_msg) > 0 ? error_msg : NULL;
+
+
+    PGresult* res = PQexecParams(
+        conn,
+        "INSERT INTO checks (monitor_id, status_code, response_time_ms, is_up, error_message) VALUES ($1, $2, $3, $4, $5)",
+        5, NULL, params, NULL, NULL, 0
+    );
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        printf("Insert failed for %s: %s\n", url, PQerrorMessage(conn));
+    } else {
+        printf("%s | %s | %ldms | %s\n", url, is_up ? "UP" : "DOWN", status_code, response_time_str);
+    }
+
+    PQclear(res);
+}
+
+
+
+int main(int argc, char **argv){
+    PGconn* conn = connect_db();
+    if (!conn) return 1;
+
+    while(1){
+        PGresult* res = PQexec(conn, "SELECT id, url FROM monitors WHERE is_active = true");
+        if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+            printf("Query failed: %s\n", PQerrorMessage(conn));
+            PQclear(res);
+            break;
+        }
+        
+        int rows = PQntuples(res); // Return the number of rows from the query result
+        printf("Checking %d monitors...\n", rows);
+
+        for (int i = 0; i < rows; i++) {
+            int monitor_id = atoi(PQgetvalue(res, i, 0));
+            char* url = PQgetvalue(res, i, 1);
+            check_url(conn, monitor_id, url);
+        }
+
+        PQclear(res);
+        printf("Done. Sleeping 30 seconds...\n\n");
+        sleep(30);
+
+    }
+
+    PQfinish(conn);
     return 0;
-
-
-
 }
