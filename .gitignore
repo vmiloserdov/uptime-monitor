@@ -5,3 +5,5 @@ __pychache__/
 .env
 
 DB_creds.txt
+*.dSYM
+probe
