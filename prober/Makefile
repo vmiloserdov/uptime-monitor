@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -g -I/opt/homebrew/opt/libpq/include
-LIBS = -lcurl -L/opt/homebrew/opt/libpq/lib -lpq
+LIBS = -lcurl -L/opt/homebrew/opt/libpq/lib -lpq -lpthread
 
 probe: prober.c
 	$(CC) $(CFLAGS) prober.c -o probe $(LIBS)

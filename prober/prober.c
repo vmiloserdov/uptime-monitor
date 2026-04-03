@@ -4,15 +4,21 @@
 #include <string.h>
 #include <curl/curl.h>
 #include <libpq-fe.h>
+#include <pthread.h>
 
 
 /* Global Variables */
 const long timeout = 10L;
 const long follow_location = 1L;
 const long download_body = 1L;
-
-
 const char* conn_string ="host=localhost user=monitor_user password=monitor_user dbname=uptime_monitor";
+
+
+
+typedef struct {
+    int monitor_id;
+    char url[512];
+} MonitorTask;
 
 
 /**
@@ -27,6 +33,7 @@ PGconn *connect_db(){
     }
     return conn;
 }
+
 
 
 void check_url(PGconn *conn, int monitor_id, char *url){
@@ -99,33 +106,54 @@ void check_url(PGconn *conn, int monitor_id, char *url){
     PQclear(res);
 }
 
+void* thread_check(void* arg) {
+    MonitorTask* task = (MonitorTask*)arg;
+    
+    PGconn* conn = connect_db();
+    if (!conn) {
+        free(task);
+        return NULL;
+    }
 
+    check_url(conn, task->monitor_id, task->url);
+    
+    PQfinish(conn);
+    free(task);
+    return NULL;
+}
 
-int main(int argc, char **argv){
+int main() {
     PGconn* conn = connect_db();
     if (!conn) return 1;
 
-    while(1){
+    while (1) {
         PGresult* res = PQexec(conn, "SELECT id, url FROM monitors WHERE is_active = true");
+
         if (PQresultStatus(res) != PGRES_TUPLES_OK) {
             printf("Query failed: %s\n", PQerrorMessage(conn));
             PQclear(res);
             break;
         }
-        
-        int rows = PQntuples(res); // Return the number of rows from the query result
+
+        int rows = PQntuples(res);
         printf("Checking %d monitors...\n", rows);
 
+        pthread_t threads[rows];
+
         for (int i = 0; i < rows; i++) {
-            int monitor_id = atoi(PQgetvalue(res, i, 0));
-            char* url = PQgetvalue(res, i, 1);
-            check_url(conn, monitor_id, url);
+            MonitorTask* task = malloc(sizeof(MonitorTask));
+            task->monitor_id = atoi(PQgetvalue(res, i, 0));
+            strncpy(task->url, PQgetvalue(res, i, 1), sizeof(task->url) - 1);
+            pthread_create(&threads[i], NULL, thread_check, task);
+        }
+
+        for (int i = 0; i < rows; i++) {
+            pthread_join(threads[i], NULL);
         }
 
         PQclear(res);
         printf("Done. Sleeping 30 seconds...\n\n");
         sleep(30);
-
     }
 
     PQfinish(conn);
